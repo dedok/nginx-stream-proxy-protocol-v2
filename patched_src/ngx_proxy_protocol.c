@@ -105,7 +105,7 @@ struct ngx_tlv_ssl_s {
     ngx_tlv_t   tlv;
     uint8_t     client;
     uint32_t    verify;
-    uint8_t     sub_tlv[0];
+    uint8_t     sub_tlv[];
 } __attribute__((packed));
 
 typedef struct ngx_tlv_ssl_s ngx_tlv_ssl_t;
