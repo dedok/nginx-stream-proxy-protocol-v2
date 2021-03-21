@@ -29,9 +29,12 @@
 #define NGX_PROXY_PROTOCOL_V2_FAM_INET         0x10
 #define NGX_PROXY_PROTOCOL_V2_FAM_INET6        0x20
 
+#define NGX_PROXY_PROTOCOL_V2_TYPE_ALPN             0x01
 #define NGX_PROXY_PROTOCOL_V2_TYPE_SSL              0x20
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_VERSION   0x21
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CIPHER    0x23
+#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG   0x24
+#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG   0x25
 
 #define NGX_PROXY_PROTOCOL_V2_CLIENT_SSL            0x01
 #define NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN      0x02
@@ -520,7 +523,14 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 #if (NGX_STREAM_SSL)
     ngx_tlv_ssl_t                   *tlv;
     u_char                          *value, *pos;
+    u_char                           kbuf[100];
+    const unsigned char             *data;
+    unsigned int                     data_len;
+
     X509                            *crt;
+	EVP_PKEY                        *key;
+	const ASN1_OBJECT               *algorithm;
+
     long                             rc;
     size_t                           tlv_len;
 #endif
@@ -641,15 +651,42 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
     /** SSL TLVs */
 #if (NGX_STREAM_SSL)
 
-    tlv = (ngx_tlv_ssl_t *) (buf + len);
-    ngx_memzero(tlv, sizeof(ngx_tlv_ssl_t));
-
-    tlv->tlv.type = NGX_PROXY_PROTOCOL_V2_TYPE_SSL;
-    pos = buf + len + sizeof(ngx_tlv_ssl_t);
-
     if (c->ssl != NULL) {
 
+        data = NULL;
+        data_len = 0;
+
+        tlv = (ngx_tlv_ssl_t *) (buf + len);
+        ngx_memzero(tlv, sizeof(ngx_tlv_ssl_t));
+
+        tlv->tlv.type = NGX_PROXY_PROTOCOL_V2_TYPE_SSL;
+        pos = buf + len + sizeof(ngx_tlv_ssl_t);
+
         tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_SSL;
+
+#ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
+        SSL_get0_alpn_selected(c->ssl->connection, &data, &data_len);
+
+#ifdef TLSEXT_TYPE_next_proto_neg
+        if (data_len == 0) {
+            SSL_get0_next_proto_negotiated(c->ssl->connection,
+                    &data, &data_len);
+        }
+#endif
+
+#else /* TLSEXT_TYPE_next_proto_neg */
+        SSL_get0_next_proto_negotiated(c->ssl->connection, &data, &data_len);
+#endif
+
+        if (data_len) {
+
+            pos = ngx_copy_tlv(pos, last,
+                        NGX_PROXY_PROTOCOL_V2_TYPE_ALPN,
+                        (u_char *) data, (uint16_t) data_len);
+            if (pos == NULL) {
+                return NULL;
+            }
+        }
 
         value = (u_char *) SSL_get_version(c->ssl->connection);
         if (value != NULL) {
@@ -669,6 +706,62 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
             X509_free(crt);
         }
 
+
+        crt = SSL_get_certificate(c->ssl->connection);
+	    if (crt != NULL) {
+
+            key = X509_get_pubkey(crt);
+
+            /** Key */
+	        if (key != NULL) {
+
+		        switch (EVP_PKEY_base_id(key)) {
+		        case EVP_PKEY_RSA:
+                    value = (u_char *) "RSA";
+			    break;
+		        case EVP_PKEY_EC:
+                    value = (u_char *) "EC";
+			    break;
+		        case EVP_PKEY_DSA:
+                    value = (u_char *) "DSA";
+			    break;
+                default:
+                    value = NULL;
+                break;
+                }
+
+                if (value != NULL) {
+
+                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d\0",
+                            value, EVP_PKEY_bits(key));
+
+                    pos = ngx_copy_tlv(pos, last,
+                                NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
+                                kbuf, ngx_strlen(value));
+                }
+
+		        EVP_PKEY_free(key);
+
+                if (pos == NULL) {
+                    return NULL;
+                }
+            }
+
+            /* ALG */
+            X509_ALGOR_get0(&algorithm, NULL, NULL, X509_get0_tbs_sigalg(crt));
+	        value = (u_char *) OBJ_nid2sn(OBJ_obj2nid(algorithm));
+
+            if (value != NULL) {
+
+                pos = ngx_copy_tlv(pos, last,
+                            NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG,
+                            value, ngx_strlen(value));
+                if (pos == NULL) {
+                    return NULL;
+                }
+            }
+        }
+
         rc = SSL_get_verify_result(c->ssl->connection);
         if (rc == X509_V_OK) {
 
@@ -686,14 +779,15 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
                 return NULL;
             }
         }
+
+        tlv_len = pos - (buf + len);
+
+        tlv->tlv.length_hi = (tlv_len - sizeof(ngx_tlv_t)) >> 8;
+        tlv->tlv.length_lo = (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
+
+        len = len + tlv_len;
     }
 
-    tlv_len = pos - (buf + len);
-
-    tlv->tlv.length_hi = (tlv_len - sizeof(ngx_tlv_t)) >> 8;
-    tlv->tlv.length_lo = (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
-
-    len = len + tlv_len;
 #endif
 
     header->len = htons(len - NGX_PROXY_PROTOCOL_V2_HDR_LEN);
