@@ -47,4 +47,11 @@ $> cd NGINX-SOURCES-ROOT
 $> patch -p1 < stream-proxy-protocol-v2-release-1.19.8.patch
 # Compile NGINX
 ```
+# Docker
+1. Change upstreams in the nginx.conf file
+2. Execute:
+```bash
+$> docker build -t nginx-proxy-protocol-v2 .
+$> docker run -i -t nginx-proxy-protocol-v2 bash
+```
 
