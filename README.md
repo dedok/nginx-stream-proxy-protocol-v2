@@ -48,6 +48,9 @@ $> patch -p1 < stream-proxy-protocol-v2-release-1.19.8.patch
 # Compile NGINX
 ```
 # Docker
+WARNING:
+nginx would be built for debug purposes and with debug options,
+be careful do not use this image's settings for the production.
 1. Change upstreams in the nginx.conf file
 2. Execute:
 ```bash
