@@ -1,5 +1,5 @@
 diff --git a/src/core/ngx_proxy_protocol.c b/src/core/ngx_proxy_protocol.c
-index 7a9e7f9..bc9480f 100644
+index 7a9e7f9..eba8bc7 100644
 --- a/src/core/ngx_proxy_protocol.c
 +++ b/src/core/ngx_proxy_protocol.c
 @@ -13,6 +13,40 @@
@@ -133,7 +133,7 @@ index 7a9e7f9..bc9480f 100644
      switch (c->sockaddr->sa_family) {
  
      case AF_INET:
-@@ -420,3 +515,366 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
+@@ -420,3 +515,367 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
  
      return end;
  }
@@ -158,6 +158,7 @@ index 7a9e7f9..bc9480f 100644
 +    X509                            *crt;
 +	EVP_PKEY                        *key;
 +	const ASN1_OBJECT               *algorithm;
++    const char                      *s;
 +
 +    long                             rc;
 +    size_t                           tlv_len;
