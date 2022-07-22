@@ -1,5 +1,5 @@
 diff --git a/src/core/ngx_proxy_protocol.c b/src/core/ngx_proxy_protocol.c
-index 7a9e7f9..bf80773 100644
+index 7a9e7f9..4fec4be 100644
 --- a/src/core/ngx_proxy_protocol.c
 +++ b/src/core/ngx_proxy_protocol.c
 @@ -13,6 +13,40 @@
@@ -133,7 +133,7 @@ index 7a9e7f9..bf80773 100644
      switch (c->sockaddr->sa_family) {
  
      case AF_INET:
-@@ -420,3 +515,363 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
+@@ -420,3 +515,366 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
  
      return end;
  }
@@ -332,6 +332,16 @@ index 7a9e7f9..bf80773 100644
 +
 +            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS;
 +
++            rc = SSL_get_verify_result(c->ssl->connection);
++            tlv->verify = htonl(rc);
++
++            if (rc == X509_V_OK) {
++
++                if (ngx_ssl_ocsp_get_status(c, &s) == NGX_OK) {
++                    tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
++                }
++            }
++
 +            X509_NAME *subject_name_value = X509_get_subject_name(crt);
 +            if(subject_name_value != NULL) {
 +                int nid = OBJ_txt2nid("CN");
@@ -412,13 +422,6 @@ index 7a9e7f9..bf80773 100644
 +                    return NULL;
 +                }
 +            }
-+        }
-+
-+        rc = SSL_get_verify_result(c->ssl->connection);
-+        if (rc == X509_V_OK) {
-+
-+            tlv->verify = htonl(1);
-+            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
 +        }
 +
 +        value = (u_char *) SSL_get_cipher_name(c->ssl->connection);

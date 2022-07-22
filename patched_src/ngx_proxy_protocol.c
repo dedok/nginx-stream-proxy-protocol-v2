@@ -710,6 +710,16 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
             tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS;
 
+            rc = SSL_get_verify_result(c->ssl->connection);
+            tlv->verify = htonl(rc);
+
+            if (rc == X509_V_OK) {
+
+                if (ngx_ssl_ocsp_get_status(c, &s) == NGX_OK) {
+                    tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
+                }
+            }
+
             X509_NAME *subject_name_value = X509_get_subject_name(crt);
             if(subject_name_value != NULL) {
                 int nid = OBJ_txt2nid("CN");
@@ -790,13 +800,6 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
                     return NULL;
                 }
             }
-        }
-
-        rc = SSL_get_verify_result(c->ssl->connection);
-        if (rc == X509_V_OK) {
-
-            tlv->verify = htonl(1);
-            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
         }
 
         value = (u_char *) SSL_get_cipher_name(c->ssl->connection);
