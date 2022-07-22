@@ -536,6 +536,7 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
     X509                            *crt;
 	EVP_PKEY                        *key;
 	const ASN1_OBJECT               *algorithm;
+    const char                      *s;
 
     long                             rc;
     size_t                           tlv_len;
@@ -777,7 +778,7 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
                     pos = ngx_copy_tlv(pos, last,
                                 NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
-                                kbuf, ngx_strlen(kbuf"%s%d\0",));
+                                kbuf, ngx_strlen(kbuf));
                 }
 
 		        EVP_PKEY_free(key);
@@ -815,7 +816,7 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
         tlv_len = pos - (buf + len);
 
-        ttlv->tlv.length_hi = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) >> 8;
+        tlv->tlv.length_hi = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) >> 8;
         tlv->tlv.length_lo = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
 
         len = len + tlv_len;
