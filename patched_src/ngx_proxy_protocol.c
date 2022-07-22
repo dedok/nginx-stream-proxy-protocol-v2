@@ -30,11 +30,17 @@
 #define NGX_PROXY_PROTOCOL_V2_FAM_INET6        0x20
 
 #define NGX_PROXY_PROTOCOL_V2_TYPE_ALPN             0x01
+#define NGX_PROXY_PROTOCOL_V2_TYPE_AUTHORITY        0x02 # Not implemented
+#define NGX_PROXY_PROTOCOL_V2_TYPE_CRC32C           0x03 # Not implemented
+#define NGX_PROXY_PROTOCOL_V2_TYPE_NOOP             0x04 # Not implemented
+#define NGX_PROXY_PROTOCOL_V2_TYPE_UNIQUE_ID        0x05 # Not implemented
 #define NGX_PROXY_PROTOCOL_V2_TYPE_SSL              0x20
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_VERSION   0x21
+#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN        0x22
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CIPHER    0x23
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG   0x24
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG   0x25
+#define NGX_PROXY_PROTOCOL_V2_TYPE_NETNS            0x30 # Not implemented
 
 #define NGX_PROXY_PROTOCOL_V2_CLIENT_SSL            0x01
 #define NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN      0x02
@@ -703,6 +709,30 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
         if (crt != NULL) {
 
             tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS;
+
+            X509_NAME *subject_name_value = X509_get_subject_name(crt);
+            if(subject_name_value != NULL) {
+                int nid = OBJ_txt2nid("CN");
+                int index = X509_NAME_get_index_by_NID(subject_name_value, nid, -1);
+
+                X509_NAME_ENTRY *subject_name_cn_entry = X509_NAME_get_entry(subject_name_value, index);
+                if (subject_name_cn_entry) {
+                    ASN1_STRING *subject_name_cn_data_asn1 = X509_NAME_ENTRY_get_data(subject_name_cn_entry);
+
+                    if (subject_name_cn_data_asn1 != NULL) {
+                        value = (u_char *) ASN1_STRING_get0_data(subject_name_cn_data_asn1);
+                        if(value != NULL) {
+                            pos = ngx_copy_tlv(pos, last,
+                                        NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN,
+                                        value, ngx_strlen(value));
+                            if (pos == NULL) {
+                                return NULL;
+                            }
+                        }
+                    }
+                }
+            }
+
             X509_free(crt);
         }
 

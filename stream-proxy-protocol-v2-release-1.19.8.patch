@@ -1,8 +1,8 @@
 diff --git a/src/core/ngx_proxy_protocol.c b/src/core/ngx_proxy_protocol.c
-index 7a9e7f9d..2056f1cd 100644
+index 7a9e7f9..bf80773 100644
 --- a/src/core/ngx_proxy_protocol.c
 +++ b/src/core/ngx_proxy_protocol.c
-@@ -13,6 +13,34 @@
+@@ -13,6 +13,40 @@
  #define NGX_PROXY_PROTOCOL_AF_INET6         2
  
  
@@ -23,11 +23,17 @@ index 7a9e7f9d..2056f1cd 100644
 +#define NGX_PROXY_PROTOCOL_V2_FAM_INET6        0x20
 +
 +#define NGX_PROXY_PROTOCOL_V2_TYPE_ALPN             0x01
++#define NGX_PROXY_PROTOCOL_V2_TYPE_AUTHORITY        0x02 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_CRC32C           0x03 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_NOOP             0x04 # Not implemented
++#define NGX_PROXY_PROTOCOL_V2_TYPE_UNIQUE_ID        0x05 # Not implemented
 +#define NGX_PROXY_PROTOCOL_V2_TYPE_SSL              0x20
 +#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_VERSION   0x21
++#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN        0x22
 +#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CIPHER    0x23
 +#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG   0x24
 +#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG   0x25
++#define NGX_PROXY_PROTOCOL_V2_TYPE_NETNS            0x30 # Not implemented
 +
 +#define NGX_PROXY_PROTOCOL_V2_CLIENT_SSL            0x01
 +#define NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN      0x02
@@ -37,7 +43,7 @@ index 7a9e7f9d..2056f1cd 100644
  #define ngx_proxy_protocol_parse_uint16(p)  ((p)[0] << 8 | (p)[1])
  
  
-@@ -40,12 +68,68 @@ typedef struct {
+@@ -40,12 +74,68 @@ typedef struct {
  } ngx_proxy_protocol_inet6_addrs_t;
  
  
@@ -106,7 +112,7 @@ index 7a9e7f9d..2056f1cd 100644
  
  
  u_char *
-@@ -223,7 +307,8 @@ ngx_proxy_protocol_read_port(u_char *p, u_char *last, in_port_t *port,
+@@ -223,7 +313,8 @@ ngx_proxy_protocol_read_port(u_char *p, u_char *last, in_port_t *port,
  
  
  u_char *
@@ -116,7 +122,7 @@ index 7a9e7f9d..2056f1cd 100644
  {
      ngx_uint_t  port, lport;
  
-@@ -235,6 +320,10 @@ ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
+@@ -235,6 +326,10 @@ ngx_proxy_protocol_write(ngx_connection_t *c, u_char *buf, u_char *last)
          return NULL;
      }
  
@@ -127,7 +133,7 @@ index 7a9e7f9d..2056f1cd 100644
      switch (c->sockaddr->sa_family) {
  
      case AF_INET:
-@@ -420,3 +509,344 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
+@@ -420,3 +515,363 @@ ngx_proxy_protocol_v2_read(ngx_connection_t *c, u_char *buf, u_char *last)
  
      return end;
  }
@@ -150,9 +156,8 @@ index 7a9e7f9d..2056f1cd 100644
 +    unsigned int                     data_len;
 +
 +    X509                            *crt;
-+    EVP_PKEY                        *key;
-+    const ASN1_OBJECT               *algorithm;
-+    const char                      *s;
++	EVP_PKEY                        *key;
++	const ASN1_OBJECT               *algorithm;
 +
 +    long                             rc;
 +    size_t                           tlv_len;
@@ -272,21 +277,20 @@ index 7a9e7f9d..2056f1cd 100644
 +#endif
 +
 +    /** SSL TLVs */
-+
 +#if (NGX_STREAM_SSL)
 +
-+    data = NULL;
-+    data_len = 0;
-+
-+    tlv = (ngx_tlv_ssl_t *) (buf + len);
-+    ngx_memzero(tlv, sizeof(ngx_tlv_ssl_t));
-+
-+    tlv->tlv.type = NGX_PROXY_PROTOCOL_V2_TYPE_SSL;
-+    pos = buf + len + sizeof(ngx_tlv_ssl_t);
-+
-+    tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_SSL;
-+
 +    if (c->ssl != NULL) {
++
++        data = NULL;
++        data_len = 0;
++
++        tlv = (ngx_tlv_ssl_t *) (buf + len);
++        ngx_memzero(tlv, sizeof(ngx_tlv_ssl_t));
++
++        tlv->tlv.type = NGX_PROXY_PROTOCOL_V2_TYPE_SSL;
++        pos = buf + len + sizeof(ngx_tlv_ssl_t);
++
++        tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_SSL;
 +
 +#ifdef TLSEXT_TYPE_application_layer_protocol_negotiation
 +        SSL_get0_alpn_selected(c->ssl->connection, &data, &data_len);
@@ -328,53 +332,67 @@ index 7a9e7f9d..2056f1cd 100644
 +
 +            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS;
 +
-+            rc = SSL_get_verify_result(c->ssl->connection);
-+            tlv->verify = htonl(rc);
++            X509_NAME *subject_name_value = X509_get_subject_name(crt);
++            if(subject_name_value != NULL) {
++                int nid = OBJ_txt2nid("CN");
++                int index = X509_NAME_get_index_by_NID(subject_name_value, nid, -1);
 +
-+            if (rc == X509_V_OK) {
++                X509_NAME_ENTRY *subject_name_cn_entry = X509_NAME_get_entry(subject_name_value, index);
++                if (subject_name_cn_entry) {
++                    ASN1_STRING *subject_name_cn_data_asn1 = X509_NAME_ENTRY_get_data(subject_name_cn_entry);
 +
-+                if (ngx_ssl_ocsp_get_status(c, &s) == NGX_OK) {
-+                    tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
++                    if (subject_name_cn_data_asn1 != NULL) {
++                        value = (u_char *) ASN1_STRING_get0_data(subject_name_cn_data_asn1);
++                        if(value != NULL) {
++                            pos = ngx_copy_tlv(pos, last,
++                                        NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN,
++                                        value, ngx_strlen(value));
++                            if (pos == NULL) {
++                                return NULL;
++                            }
++                        }
++                    }
 +                }
 +            }
 +
 +            X509_free(crt);
 +        }
 +
++
 +        crt = SSL_get_certificate(c->ssl->connection);
-+        if (crt != NULL) {
++	    if (crt != NULL) {
 +
 +            key = X509_get_pubkey(crt);
 +
 +            /** Key */
-+            if (key != NULL) {
++	        if (key != NULL) {
 +
-+                switch (EVP_PKEY_base_id(key)) {
-+                case EVP_PKEY_RSA:
++		        switch (EVP_PKEY_base_id(key)) {
++		        case EVP_PKEY_RSA:
 +                    value = (u_char *) "RSA";
-+                    break;
-+                case EVP_PKEY_EC:
++			    break;
++		        case EVP_PKEY_EC:
 +                    value = (u_char *) "EC";
-+                    break;
-+                case EVP_PKEY_DSA:
++			    break;
++		        case EVP_PKEY_DSA:
 +                    value = (u_char *) "DSA";
-+                    break;
++			    break;
 +                default:
 +                    value = NULL;
-+                    break;
++                break;
 +                }
 +
 +                if (value != NULL) {
 +
-+                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d%Z",
++                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d\0",
 +                            value, EVP_PKEY_bits(key));
 +
 +                    pos = ngx_copy_tlv(pos, last,
 +                                NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
-+                                kbuf, ngx_strlen(kbuf));
++                                kbuf, ngx_strlen(value));
 +                }
 +
-+                EVP_PKEY_free(key);
++		        EVP_PKEY_free(key);
 +
 +                if (pos == NULL) {
 +                    return NULL;
@@ -383,7 +401,7 @@ index 7a9e7f9d..2056f1cd 100644
 +
 +            /* ALG */
 +            X509_ALGOR_get0(&algorithm, NULL, NULL, X509_get0_tbs_sigalg(crt));
-+            value = (u_char *) OBJ_nid2sn(OBJ_obj2nid(algorithm));
++	        value = (u_char *) OBJ_nid2sn(OBJ_obj2nid(algorithm));
 +
 +            if (value != NULL) {
 +
@@ -396,6 +414,13 @@ index 7a9e7f9d..2056f1cd 100644
 +            }
 +        }
 +
++        rc = SSL_get_verify_result(c->ssl->connection);
++        if (rc == X509_V_OK) {
++
++            tlv->verify = htonl(1);
++            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
++        }
++
 +        value = (u_char *) SSL_get_cipher_name(c->ssl->connection);
 +        if (value != NULL) {
 +
@@ -406,14 +431,14 @@ index 7a9e7f9d..2056f1cd 100644
 +                return NULL;
 +            }
 +        }
++
++        tlv_len = pos - (buf + len);
++
++        tlv->tlv.length_hi = (tlv_len - sizeof(ngx_tlv_t)) >> 8;
++        tlv->tlv.length_lo = (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
++
++        len = len + tlv_len;
 +    }
-+
-+    tlv_len = pos - (buf + len);
-+
-+    tlv->tlv.length_hi = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) >> 8;
-+    tlv->tlv.length_lo = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
-+
-+    len = len + tlv_len;
 +
 +#endif
 +
@@ -455,25 +480,25 @@ index 7a9e7f9d..2056f1cd 100644
 +{
 +    ngx_tlv_t   *tlv;
 +
-+    if (last - pos < (long) sizeof(*tlv)) {
++    if (last - pos < (long) sizeof(ngx_tlv_t)) {
 +        return NULL;
 +    }
 +
 +    tlv = (ngx_tlv_t *) pos;
 +
 +    tlv->type = type;
-+    tlv->length_hi = (uint16_t) value_len >> 8;
-+    tlv->length_lo = (uint16_t) value_len & 0x00ff;
++    tlv->length_hi = value_len >> 8;
++    tlv->length_lo = value_len & 0x00ff;
 +    ngx_memcpy(tlv->value, value, value_len);
 +
-+    return pos + (value_len + sizeof(*tlv));
++    return pos + sizeof(ngx_tlv_t);
 +}
 +
 +#endif
 +
 +
 diff --git a/src/core/ngx_proxy_protocol.h b/src/core/ngx_proxy_protocol.h
-index b7162209..190ec030 100644
+index b716220..190ec03 100644
 --- a/src/core/ngx_proxy_protocol.h
 +++ b/src/core/ngx_proxy_protocol.h
 @@ -13,7 +13,7 @@
@@ -495,7 +520,7 @@ index b7162209..190ec030 100644
  
  #endif /* _NGX_PROXY_PROTOCOL_H_INCLUDED_ */
 diff --git a/src/stream/ngx_stream_proxy_module.c b/src/stream/ngx_stream_proxy_module.c
-index 01cda7a3..faec2644 100644
+index 01cda7a..faec264 100644
 --- a/src/stream/ngx_stream_proxy_module.c
 +++ b/src/stream/ngx_stream_proxy_module.c
 @@ -30,7 +30,7 @@ typedef struct {
@@ -583,7 +608,7 @@ index 01cda7a3..faec2644 100644
      ngx_conf_merge_ptr_value(conf->local, prev->local, NULL);
  
 diff --git a/src/stream/ngx_stream_upstream.h b/src/stream/ngx_stream_upstream.h
-index 9857e0b7..494af4ae 100644
+index 9857e0b..494af4a 100644
 --- a/src/stream/ngx_stream_upstream.h
 +++ b/src/stream/ngx_stream_upstream.h
 @@ -141,7 +141,7 @@ typedef struct {

@@ -20,7 +20,7 @@ This patch would not work compile under Windows platform, because codes are usin
 3. I'm happy to get any feedback about TLV features. Please create a ticket, if you wish to see more TLV features.
 
 ## Current TLVs features:
-1. SSL: version, cert conn, cipher, key alg, sig alg.
+1. SSL: version, cn, cert conn, cipher, key alg, sig alg.
 
 # Plans
 
