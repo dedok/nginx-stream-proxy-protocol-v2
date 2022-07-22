@@ -772,12 +772,12 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
                 if (value != NULL) {
 
-                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d\0",
+                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d%Z",
                             value, EVP_PKEY_bits(key));
 
                     pos = ngx_copy_tlv(pos, last,
                                 NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
-                                kbuf, ngx_strlen(value));
+                                kbuf, ngx_strlen(kbuf));
                 }
 
 		        EVP_PKEY_free(key);
@@ -815,8 +815,8 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
         tlv_len = pos - (buf + len);
 
-        tlv->tlv.length_hi = (tlv_len - sizeof(ngx_tlv_t)) >> 8;
-        tlv->tlv.length_lo = (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
+        ttlv->tlv.length_hi = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) >> 8;
+        tlv->tlv.length_lo = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
 
         len = len + tlv_len;
     }
@@ -861,18 +861,18 @@ ngx_copy_tlv(u_char *pos, u_char *last, u_char type,
 {
     ngx_tlv_t   *tlv;
 
-    if (last - pos < (long) sizeof(ngx_tlv_t)) {
+    if (last - pos < (long) sizeof(*tlv)) {
         return NULL;
     }
 
     tlv = (ngx_tlv_t *) pos;
 
     tlv->type = type;
-    tlv->length_hi = value_len >> 8;
-    tlv->length_lo = value_len & 0x00ff;
+    tlv->length_hi = (uint16_t) value_len >> 8;
+    tlv->length_lo = (uint16_t) value_len & 0x00ff;
     ngx_memcpy(tlv->value, value, value_len);
 
-    return pos + sizeof(ngx_tlv_t);
+    return pos + (value_len + sizeof(*tlv));
 }
 
 #endif
