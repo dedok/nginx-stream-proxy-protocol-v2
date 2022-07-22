@@ -777,7 +777,7 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
                     pos = ngx_copy_tlv(pos, last,
                                 NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
-                                kbuf, ngx_strlen(kbuf));
+                                kbuf, ngx_strlen(kbuf"%s%d\0",));
                 }
 
 		        EVP_PKEY_free(key);

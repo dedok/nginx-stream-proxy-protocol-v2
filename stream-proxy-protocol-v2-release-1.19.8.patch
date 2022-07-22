@@ -1,7 +1,7 @@
-diff --git a/src/core/ngx_proxy_protocol.c b/src/core/ngx_proxy_protocol.c
-index 7a9e7f9..4fec4be 100644
---- a/src/core/ngx_proxy_protocol.c
-+++ b/src/core/ngx_proxy_protocol.c
+diff --git a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/core/ngx_proxy_protocol.c b/./patched_src/ngx_proxy_protocol.c
+index 7a9e7f9..bc9480f 100644
+--- a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/core/ngx_proxy_protocol.c
++++ b/./patched_src/ngx_proxy_protocol.c
 @@ -13,6 +13,40 @@
  #define NGX_PROXY_PROTOCOL_AF_INET6         2
  
@@ -500,10 +500,10 @@ index 7a9e7f9..4fec4be 100644
 +#endif
 +
 +
-diff --git a/src/core/ngx_proxy_protocol.h b/src/core/ngx_proxy_protocol.h
+diff --git a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/core/ngx_proxy_protocol.h b/./patched_src/ngx_proxy_protocol.h
 index b716220..190ec03 100644
---- a/src/core/ngx_proxy_protocol.h
-+++ b/src/core/ngx_proxy_protocol.h
+--- a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/core/ngx_proxy_protocol.h
++++ b/./patched_src/ngx_proxy_protocol.h
 @@ -13,7 +13,7 @@
  #include <ngx_core.h>
  
@@ -522,10 +522,10 @@ index b716220..190ec03 100644
  
  
  #endif /* _NGX_PROXY_PROTOCOL_H_INCLUDED_ */
-diff --git a/src/stream/ngx_stream_proxy_module.c b/src/stream/ngx_stream_proxy_module.c
+diff --git a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/stream/ngx_stream_proxy_module.c b/./patched_src/ngx_stream_proxy_module.c
 index 01cda7a..faec264 100644
---- a/src/stream/ngx_stream_proxy_module.c
-+++ b/src/stream/ngx_stream_proxy_module.c
+--- a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/stream/ngx_stream_proxy_module.c
++++ b/./patched_src/ngx_stream_proxy_module.c
 @@ -30,7 +30,7 @@ typedef struct {
      ngx_uint_t                       responses;
      ngx_uint_t                       next_upstream_tries;
@@ -610,10 +610,10 @@ index 01cda7a..faec264 100644
  
      ngx_conf_merge_ptr_value(conf->local, prev->local, NULL);
  
-diff --git a/src/stream/ngx_stream_upstream.h b/src/stream/ngx_stream_upstream.h
+diff --git a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/stream/ngx_stream_upstream.h b/./patched_src/ngx_stream_upstream.h
 index 9857e0b..494af4a 100644
---- a/src/stream/ngx_stream_upstream.h
-+++ b/src/stream/ngx_stream_upstream.h
+--- a/Users/adam-brzozowski/Downloads/nginx-1.19.8/src/stream/ngx_stream_upstream.h
++++ b/./patched_src/ngx_stream_upstream.h
 @@ -141,7 +141,7 @@ typedef struct {
      ngx_stream_upstream_resolved_t    *resolved;
      ngx_stream_upstream_state_t       *state;
