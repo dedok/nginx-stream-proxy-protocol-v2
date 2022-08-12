@@ -30,11 +30,17 @@
 #define NGX_PROXY_PROTOCOL_V2_FAM_INET6        0x20
 
 #define NGX_PROXY_PROTOCOL_V2_TYPE_ALPN             0x01
+#define NGX_PROXY_PROTOCOL_V2_TYPE_AUTHORITY        0x02 # Not implemented
+#define NGX_PROXY_PROTOCOL_V2_TYPE_CRC32C           0x03 # Not implemented
+#define NGX_PROXY_PROTOCOL_V2_TYPE_NOOP             0x04 # Not implemented
+#define NGX_PROXY_PROTOCOL_V2_TYPE_UNIQUE_ID        0x05 # Not implemented
 #define NGX_PROXY_PROTOCOL_V2_TYPE_SSL              0x20
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_VERSION   0x21
+#define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN        0x22
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CIPHER    0x23
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_SIG_ALG   0x24
 #define NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG   0x25
+#define NGX_PROXY_PROTOCOL_V2_TYPE_NETNS            0x30 # Not implemented
 
 #define NGX_PROXY_PROTOCOL_V2_CLIENT_SSL            0x01
 #define NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN      0x02
@@ -530,6 +536,7 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
     X509                            *crt;
 	EVP_PKEY                        *key;
 	const ASN1_OBJECT               *algorithm;
+    const char                      *s;
 
     long                             rc;
     size_t                           tlv_len;
@@ -703,6 +710,40 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
         if (crt != NULL) {
 
             tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_SESS;
+
+            rc = SSL_get_verify_result(c->ssl->connection);
+            tlv->verify = htonl(rc);
+
+            if (rc == X509_V_OK) {
+
+                if (ngx_ssl_ocsp_get_status(c, &s) == NGX_OK) {
+                    tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
+                }
+            }
+
+            X509_NAME *subject_name_value = X509_get_subject_name(crt);
+            if(subject_name_value != NULL) {
+                int nid = OBJ_txt2nid("CN");
+                int index = X509_NAME_get_index_by_NID(subject_name_value, nid, -1);
+
+                X509_NAME_ENTRY *subject_name_cn_entry = X509_NAME_get_entry(subject_name_value, index);
+                if (subject_name_cn_entry) {
+                    ASN1_STRING *subject_name_cn_data_asn1 = X509_NAME_ENTRY_get_data(subject_name_cn_entry);
+
+                    if (subject_name_cn_data_asn1 != NULL) {
+                        value = (u_char *) ASN1_STRING_get0_data(subject_name_cn_data_asn1);
+                        if(value != NULL) {
+                            pos = ngx_copy_tlv(pos, last,
+                                        NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_CN,
+                                        value, ngx_strlen(value));
+                            if (pos == NULL) {
+                                return NULL;
+                            }
+                        }
+                    }
+                }
+            }
+
             X509_free(crt);
         }
 
@@ -732,12 +773,12 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
                 if (value != NULL) {
 
-                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d\0",
+                    value = ngx_snprintf(kbuf, sizeof(kbuf) - 1, "%s%d%Z",
                             value, EVP_PKEY_bits(key));
 
                     pos = ngx_copy_tlv(pos, last,
                                 NGX_PROXY_PROTOCOL_V2_SUBTYPE_SSL_KEY_ALG,
-                                kbuf, ngx_strlen(value));
+                                kbuf, ngx_strlen(kbuf));
                 }
 
 		        EVP_PKEY_free(key);
@@ -762,13 +803,6 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
             }
         }
 
-        rc = SSL_get_verify_result(c->ssl->connection);
-        if (rc == X509_V_OK) {
-
-            tlv->verify = htonl(1);
-            tlv->client |= NGX_PROXY_PROTOCOL_V2_CLIENT_CERT_CONN;
-        }
-
         value = (u_char *) SSL_get_cipher_name(c->ssl->connection);
         if (value != NULL) {
 
@@ -782,8 +816,8 @@ ngx_proxy_protocol_v2_write(ngx_connection_t *c, u_char *buf, u_char *last)
 
         tlv_len = pos - (buf + len);
 
-        tlv->tlv.length_hi = (tlv_len - sizeof(ngx_tlv_t)) >> 8;
-        tlv->tlv.length_lo = (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
+        tlv->tlv.length_hi = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) >> 8;
+        tlv->tlv.length_lo = (uint16_t) (tlv_len - sizeof(ngx_tlv_t)) & 0x00ff;
 
         len = len + tlv_len;
     }
@@ -828,18 +862,18 @@ ngx_copy_tlv(u_char *pos, u_char *last, u_char type,
 {
     ngx_tlv_t   *tlv;
 
-    if (last - pos < (long) sizeof(ngx_tlv_t)) {
+    if (last - pos < (long) sizeof(*tlv)) {
         return NULL;
     }
 
     tlv = (ngx_tlv_t *) pos;
 
     tlv->type = type;
-    tlv->length_hi = value_len >> 8;
-    tlv->length_lo = value_len & 0x00ff;
+    tlv->length_hi = (uint16_t) value_len >> 8;
+    tlv->length_lo = (uint16_t) value_len & 0x00ff;
     ngx_memcpy(tlv->value, value, value_len);
 
-    return pos + sizeof(ngx_tlv_t);
+    return pos + (value_len + sizeof(*tlv));
 }
 
 #endif
